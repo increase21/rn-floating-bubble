@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="floating_bubble_notification_title">Floating Bubble</string>
+  <string name="floating_bubble_notification_text">Tap to open the app</string>
+  <string name="floating_bubble_channel_name">Floating Bubble</string>
+  <string name="floating_bubble_channel_desc">Shows while the floating bubble is active</string>
+</resources>

@@ -1,0 +1,86 @@
+{
+  "name": "@increase21/rn-floating-bubble",
+  "version": "1.0.0",
+  "description": "React Native floating bubble (chat-head) for Android — draggable overlay that taps to open the host app",
+  "main": "lib/index.js",
+  "module": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "source": "src/index.ts",
+  "react-native": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./lib/index.js",
+      "require": "./lib/index.js",
+      "types": "./lib/index.d.ts"
+    }
+  },
+  "files": [
+    "src",
+    "lib",
+    "android",
+    "react-native.config.js",
+    "babel.config.js",
+    "!android/build",
+    "!android/.gradle",
+    "!**/__tests__",
+    "!**/__fixtures__",
+    "!**/__mocks__"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --build",
+    "clean": "rm -rf lib",
+    "prepublishOnly": "yarn clean && yarn build && yarn typecheck",
+    "release": "npm publish --access public"
+  },
+  "keywords": [
+    "react-native",
+    "android",
+    "floating-bubble",
+    "chat-head",
+    "chathead",
+    "overlay",
+    "system-alert-window",
+    "foreground-service",
+    "draggable",
+    "window-manager",
+    "floating bubble"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/increase21/rn-floating-bubble.git"
+  },
+  "homepage": "https://github.com/increase21/rn-floating-bubble#readme",
+  "bugs": {
+    "url": "https://github.com/increase21/rn-floating-bubble/issues"
+  },
+  "author": "Increase",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16"
+  },
+  "devDependencies": {
+    "@react-native/babel-preset": "0.73.21",
+    "@types/react": "^18.2.0",
+    "@types/react-native": "^0.73.0",
+    "react": "18.2.0",
+    "react-native": "0.73.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": false
+    },
+    "react-native": {
+      "optional": false
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
