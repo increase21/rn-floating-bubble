@@ -220,25 +220,7 @@ cd example
 yarn install
 yarn android
 ```
-
 ---
-
-## Publishing (maintainers)
-
-```sh
-# In the library root:
-yarn build       # compiles src/ → lib/
-yarn typecheck   # sanity-check the types
-
-npm version patch   # or minor / major
-npm publish         # runs prepublishOnly (clean + build + typecheck) first
-```
-
-`prepublishOnly` is wired in `package.json`, so `npm publish` always ships a
-fresh, type-checked build.
-
----
-
 ## License
 
 MIT
