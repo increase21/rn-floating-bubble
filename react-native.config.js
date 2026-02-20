@@ -13,8 +13,11 @@ module.exports = {
         packageImportPath: 'import com.rnfloatingbubble.FloatingBubblePackage;',
         packageInstance: 'new FloatingBubblePackage()',
       },
-      // iOS is not supported — set to null so the CLI skips it silently
-      ios: null,
+      // iOS has no native implementation; the podspec compiles a stub so that
+      // `pod install` succeeds without errors.  All API calls no-op on iOS.
+      ios: {
+        podspecPath: './rn-floating-bubble.podspec',
+      },
     },
   },
 };

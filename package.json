@@ -18,6 +18,8 @@
     "src",
     "lib",
     "android",
+    "ios",
+    "rn-floating-bubble.podspec",
     "react-native.config.js",
     "babel.config.js",
     "!android/build",
@@ -30,7 +32,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --build",
     "clean": "rm -rf lib",
-    "prepublishOnly": "yarn clean && yarn build && yarn typecheck",
+    "prepublishOnly": "npm run clean && npm run build && npm run typecheck",
     "release": "npm publish --access public"
   },
   "keywords": [
