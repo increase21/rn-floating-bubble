@@ -62,6 +62,7 @@ class FloatingBubbleModule(
         val useLauncherIcon = if (options.hasKey("useLauncherIcon"))  options.getBoolean("useLauncherIcon") else (icon == null)
         val initX           = if (options.hasKey("initialX"))         options.getInt("initialX")          else 0
         val initY           = if (options.hasKey("initialY"))         options.getInt("initialY")          else 100
+        val enableDismiss   = if (options.hasKey("enableDismiss"))    options.getBoolean("enableDismiss") else false
 
         val intent = Intent(reactContext, FloatingBubbleService::class.java).apply {
             putExtra(FloatingBubbleService.EXTRA_SIZE,              sizeDp)
@@ -69,6 +70,7 @@ class FloatingBubbleModule(
             putExtra(FloatingBubbleService.EXTRA_USE_LAUNCHER_ICON, useLauncherIcon)
             putExtra(FloatingBubbleService.EXTRA_INITIAL_X,         initX)
             putExtra(FloatingBubbleService.EXTRA_INITIAL_Y,         initY)
+            putExtra(FloatingBubbleService.EXTRA_ENABLE_DISMISS,    enableDismiss)
             icon?.let { putExtra(FloatingBubbleService.EXTRA_ICON, it) }
         }
 

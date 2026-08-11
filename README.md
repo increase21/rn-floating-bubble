@@ -14,6 +14,7 @@ bubble brings your host application back to the foreground.
 - Draggable bubble that floats over the home screen and every other app
 - Spring-snaps to the nearest screen edge when released
 - Tap to instantly reopen the host app
+- **Drag-to-dismiss** — optional ✕ close zone that appears while dragging; drag onto it to remove the bubble
 - **Automatic launcher-icon support** — uses your app's own icon by default
 - Custom base64 image icon as an alternative
 - Plain colour circle as the final fallback
@@ -80,6 +81,7 @@ permission has not been granted yet.
 | `useLauncherIcon` | `boolean` | `true`* | Use the app's launcher icon as the bubble image |
 | `initialX` | `number` | `0` | Initial X position in screen pixels |
 | `initialY` | `number` | `100` | Initial Y position in screen pixels |
+| `enableDismiss` | `boolean` | `false` | Show a ✕ close zone while dragging; drag onto it to remove the bubble |
 
 \* `useLauncherIcon` defaults to `true` when no `icon` is provided, and to
 `false` when an `icon` is provided.
@@ -139,6 +141,20 @@ await FloatingBubble.show({
   color: 0xFF34A853, // green
 });
 ```
+
+### Drag-to-dismiss
+
+Enable the ✕ close zone so users can remove the bubble themselves without needing a button in your UI. When `enableDismiss` is `true`, a semi-transparent close zone appears at the bottom of the screen as soon as the user starts dragging. Dragging the bubble onto it snaps it in place — releasing destroys the bubble and stops the service.
+
+```tsx
+await FloatingBubble.show({
+  enableDismiss: true,
+});
+```
+
+This matches the standard Android chat-head dismiss pattern (as seen in Facebook Messenger and similar apps).
+
+---
 
 ### Custom base64 image
 
@@ -209,7 +225,8 @@ export function useBubble() {
    that slides the bubble to the nearest horizontal edge.
 6. **Tap**: `getLaunchIntentForPackage` + `FLAG_ACTIVITY_REORDER_TO_FRONT`
    brings the host app to the foreground instantly.
-7. **`hide()`** stops the service, whose `onDestroy` removes the `ImageView`.
+7. **Dismiss zone**: when `enableDismiss: true`, a second `WindowManager` overlay (a dark circle with a ✕) is added at the bottom-centre of the screen. It fades in the moment a drag is detected. `isOverCloseZone()` uses Euclidean distance to check proximity; the bubble snaps magnetically once inside the threshold. `ACTION_UP` over the zone calls `stopSelf()`.
+8. **`hide()`** stops the service, whose `onDestroy` removes all `ImageView`s.
 
 ---
 
