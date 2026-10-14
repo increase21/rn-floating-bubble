@@ -5,3 +5,17 @@ coverage
 *.log
 *.tsbuildinfo
 package-lock.json
+
+# Android build artifacts
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+*.keystore
+!debug.keystore
+
+# Gradle wrapper binaries (generated, not committed)
+gradle/wrapper/gradle-wrapper.jar
+gradlew
+gradlew.bat
