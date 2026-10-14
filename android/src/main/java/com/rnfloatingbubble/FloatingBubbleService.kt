@@ -28,6 +28,7 @@ import android.view.animation.OvershootInterpolator
 import android.widget.ImageView
 import androidx.core.app.NotificationCompat
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 /**
@@ -38,6 +39,8 @@ import kotlin.math.roundToInt
  *   - Drag to reposition
  *   - Spring-snap to the nearest screen edge on release
  *   - Tap to bring the host app to the foreground
+ *   - Long-press to reveal a dismiss zone (✕) at the bottom of the screen,
+ *     then drag onto it to close the bubble (opt-in via [enableDismiss])
  *
  * Icon resolution order (first match wins):
  *   1. Developer-supplied base64 image  (`icon` option)
@@ -56,11 +59,15 @@ class FloatingBubbleService : Service() {
         const val EXTRA_ICON              = "icon"
         const val EXTRA_INITIAL_X         = "initialX"
         const val EXTRA_INITIAL_Y         = "initialY"
-        /** When true (default) the app launcher icon is used if no custom icon is given. */
         const val EXTRA_USE_LAUNCHER_ICON = "useLauncherIcon"
+        const val EXTRA_ENABLE_DISMISS    = "enableDismiss"
 
-        private const val NOTIFICATION_ID = 1001
-        private const val CHANNEL_ID      = "rn_floating_bubble_channel"
+        private const val NOTIFICATION_ID      = 1001
+        private const val CHANNEL_ID           = "rn_floating_bubble_channel"
+        private const val CLOSE_ZONE_SIZE_DP   = 44
+        private const val CLOSE_ZONE_BOTTOM_DP = 40
+        // Pixel radius within which the bubble snaps onto the close zone
+        private const val SNAP_THRESHOLD_DP    = 55
     }
 
     // -------------------------------------------------------------------------
@@ -71,12 +78,17 @@ class FloatingBubbleService : Service() {
     private var bubbleView: ImageView?              = null
     private var params: WindowManager.LayoutParams? = null
 
-    private var bubbleSizeDp     = 60
-    private var bubbleColor      = Color.parseColor("#4285F4")
+    // Dismiss zone (only created when enableDismiss = true)
+    private var closeView: ImageView?               = null
+    private var closeParams: WindowManager.LayoutParams? = null
+
+    private var bubbleSizeDp    = 60
+    private var bubbleColor     = Color.parseColor("#4285F4")
     private var iconBase64: String? = null
-    private var useLauncherIcon  = true      // default: try the launcher icon
-    private var initialX         = 0
-    private var initialY         = 100
+    private var useLauncherIcon = true
+    private var initialX        = 0
+    private var initialY        = 100
+    private var enableDismiss   = false
 
     // -------------------------------------------------------------------------
     // Service lifecycle
@@ -97,9 +109,11 @@ class FloatingBubbleService : Service() {
             useLauncherIcon = it.getBooleanExtra(EXTRA_USE_LAUNCHER_ICON, true)
             initialX        = it.getIntExtra(EXTRA_INITIAL_X,         0)
             initialY        = it.getIntExtra(EXTRA_INITIAL_Y,         100)
+            enableDismiss   = it.getBooleanExtra(EXTRA_ENABLE_DISMISS, false)
         }
 
-        // Must call startForeground before doing UI work on API 26+
+        android.util.Log.d("FloatingBubble", "enableDismiss=$enableDismiss")
+
         startForeground(NOTIFICATION_ID, buildNotification())
         setupBubble()
 
@@ -123,18 +137,12 @@ class FloatingBubbleService : Service() {
             elevation = 8f
             scaleType = ImageView.ScaleType.CENTER_CROP
         }
-
         bubbleView!!.setImageBitmap(resolveIcon(sizePx))
 
-        val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        else
-            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+        val windowType = overlayWindowType()
 
         params = WindowManager.LayoutParams(
-            sizePx,
-            sizePx,
-            windowType,
+            sizePx, sizePx, windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
@@ -145,90 +153,50 @@ class FloatingBubbleService : Service() {
         }
 
         windowManager!!.addView(bubbleView, params)
+
+        android.util.Log.d("FloatingBubble", "setupBubble: enableDismiss=$enableDismiss")
+        if (enableDismiss) setupCloseZone(windowType)
+
         attachTouchListener()
     }
 
+    /**
+     * Creates the dismiss zone — a translucent circle with a ✕ drawn on it,
+     * anchored to the bottom-centre of the screen. Hidden (alpha 0) at rest;
+     * fades in when the user begins a long-press drag.
+     */
+    private fun setupCloseZone(windowType: Int) {
+        android.util.Log.d("FloatingBubble", "setupCloseZone called")
+        val sizePx       = dp2px(CLOSE_ZONE_SIZE_DP)
+        val screenWidth  = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+
+        closeView = ImageView(this).apply {
+            alpha = 0f
+            elevation = 10f
+            setImageBitmap(buildCloseZoneBitmap(sizePx))
+        }
+
+        closeParams = WindowManager.LayoutParams(
+            sizePx, sizePx, windowType,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (screenWidth  / 2) - (sizePx / 2)
+            y = screenHeight - sizePx - dp2px(CLOSE_ZONE_BOTTOM_DP)
+        }
+
+        windowManager!!.addView(closeView, closeParams)
+    }
+
     private fun removeBubble() {
-        try {
-            bubbleView?.let { windowManager?.removeView(it) }
-        } catch (_: Exception) { /* already detached */ }
+        try { bubbleView?.let { windowManager?.removeView(it) } } catch (_: Exception) {}
+        try { closeView?.let  { windowManager?.removeView(it) } } catch (_: Exception) {}
         bubbleView = null
+        closeView  = null
     }
-
-    // -------------------------------------------------------------------------
-    // Icon resolution  (priority: base64 → launcher icon → colour circle)
-    // -------------------------------------------------------------------------
-
-    /**
-     * Resolves the bubble icon following the three-tier priority:
-     *
-     * 1. **Developer base64** — if [iconBase64] is non-null and decodable, it is
-     *    scaled to [sizePx] × [sizePx] and clipped to a circle.
-     * 2. **Launcher icon** — if [useLauncherIcon] is true, the app's own launcher
-     *    icon (as returned by [android.content.pm.PackageManager.getApplicationIcon])
-     *    is scaled and clipped to a circle.
-     * 3. **Colour circle** — a simple filled circle in [bubbleColor] with a drop
-     *    shadow (always succeeds).
-     */
-    private fun resolveIcon(sizePx: Int): Bitmap {
-        // 1. Developer-supplied base64 image
-        iconBase64?.let { b64 ->
-            decodeBase64Bitmap(b64)?.let { raw ->
-                return clipToCircle(scaleBitmap(raw, sizePx))
-            }
-        }
-
-        // 2. App launcher icon
-        if (useLauncherIcon) {
-            getLauncherIconBitmap(sizePx)?.let { return clipToCircle(it) }
-        }
-
-        // 3. Coloured circle fallback
-        return buildColoredCircle(sizePx, bubbleColor)
-    }
-
-    /**
-     * Retrieves the app's launcher icon as a [Bitmap] scaled to [sizePx].
-     * Returns null on any failure so the caller can fall through gracefully.
-     */
-    private fun getLauncherIconBitmap(sizePx: Int): Bitmap? {
-        return try {
-            val drawable = packageManager.getApplicationIcon(packageName)
-            val bitmap   = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-            val canvas   = Canvas(bitmap)
-            drawable.setBounds(0, 0, sizePx, sizePx)
-            drawable.draw(canvas)
-            bitmap
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    /**
-     * Clips [src] to a circle using a Porter-Duff DST_IN mask so the result
-     * has a transparent background outside the circle boundary.
-     */
-    private fun clipToCircle(src: Bitmap): Bitmap {
-        val size   = minOf(src.width, src.height)
-        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(output)
-
-        // Draw a solid white circle as a mask
-        val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        canvas.drawCircle(size / 2f, size / 2f, size / 2f, maskPaint)
-
-        // Draw the source bitmap restricted to the circle
-        val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
-        }
-        canvas.drawBitmap(src, 0f, 0f, imagePaint)
-
-        return output
-    }
-
-    /** Scales [src] to exactly [targetPx] × [targetPx]. */
-    private fun scaleBitmap(src: Bitmap, targetPx: Int): Bitmap =
-        Bitmap.createScaledBitmap(src, targetPx, targetPx, true)
 
     // -------------------------------------------------------------------------
     // Touch handling
@@ -240,6 +208,7 @@ class FloatingBubbleService : Service() {
         var downRawX    = 0f
         var downRawY    = 0f
         var isDragging  = false
+        var isOverClose = false
 
         bubbleView?.setOnTouchListener { _: View, event: MotionEvent ->
             when (event.action) {
@@ -249,31 +218,97 @@ class FloatingBubbleService : Service() {
                     downRawX    = event.rawX
                     downRawY    = event.rawY
                     isDragging  = false
+                    isOverClose = false
                     true
                 }
 
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - downRawX).toInt()
                     val dy = (event.rawY - downRawY).toInt()
+
                     if (!isDragging && (abs(dx) > 8 || abs(dy) > 8)) {
                         isDragging = true
+                        // Show X zone as soon as a real drag starts
+                        if (enableDismiss) showCloseZone()
                     }
+
                     if (isDragging) {
                         params?.x = downParamsX + dx
                         params?.y = downParamsY + dy
-                        safeUpdateLayout()
+
+                        if (enableDismiss) {
+                            isOverClose = isOverCloseZone()
+                            if (isOverClose) {
+                                snapBubbleToCloseZone()
+                            } else {
+                                safeUpdateLayout()
+                            }
+                        } else {
+                            safeUpdateLayout()
+                        }
                     }
                     true
                 }
 
                 MotionEvent.ACTION_UP -> {
-                    if (isDragging) snapToEdge() else openHostApp()
+                    hideCloseZone()
+
+                    when {
+                        isDragging && enableDismiss && isOverClose -> stopSelf()
+                        isDragging -> snapToEdge()
+                        else -> openHostApp()
+                    }
+
+                    isDragging  = false
+                    isOverClose = false
                     true
                 }
 
                 else -> false
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Close zone helpers
+    // -------------------------------------------------------------------------
+
+    private fun showCloseZone() {
+        closeView?.animate()?.alpha(1f)?.setDuration(200)?.start()
+    }
+
+    private fun hideCloseZone() {
+        closeView?.animate()?.alpha(0f)?.setDuration(150)?.start()
+    }
+
+    /**
+     * Returns true if the centre of the bubble is within [SNAP_THRESHOLD_DP] dp
+     * of the centre of the close zone.
+     */
+    private fun isOverCloseZone(): Boolean {
+        val cp = closeParams ?: return false
+        val pp = params      ?: return false
+
+        val bubbleSizePx = dp2px(bubbleSizeDp)
+        val closeSizePx  = dp2px(CLOSE_ZONE_SIZE_DP)
+
+        val bubbleCx = pp.x + bubbleSizePx / 2f
+        val bubbleCy = pp.y + bubbleSizePx / 2f
+        val closeCx  = cp.x + closeSizePx  / 2f
+        val closeCy  = cp.y + closeSizePx  / 2f
+
+        return hypot((bubbleCx - closeCx).toDouble(), (bubbleCy - closeCy).toDouble()) <
+                dp2px(SNAP_THRESHOLD_DP)
+    }
+
+    /** Moves the bubble so its centre aligns with the close zone centre. */
+    private fun snapBubbleToCloseZone() {
+        val cp = closeParams ?: return
+        val bubbleSizePx = dp2px(bubbleSizeDp)
+        val closeSizePx  = dp2px(CLOSE_ZONE_SIZE_DP)
+        params?.x = cp.x + closeSizePx  / 2 - bubbleSizePx / 2
+        params?.y = cp.y + closeSizePx  / 2 - bubbleSizePx / 2
+        safeUpdateLayout()
     }
 
     // -------------------------------------------------------------------------
@@ -301,7 +336,7 @@ class FloatingBubbleService : Service() {
     private fun safeUpdateLayout() {
         try {
             bubbleView?.let { windowManager?.updateViewLayout(it, params) }
-        } catch (_: Exception) { /* view already removed */ }
+        } catch (_: Exception) {}
     }
 
     // -------------------------------------------------------------------------
@@ -321,16 +356,111 @@ class FloatingBubbleService : Service() {
     }
 
     // -------------------------------------------------------------------------
+    // Icon resolution  (priority: base64 → launcher icon → colour circle)
+    // -------------------------------------------------------------------------
+
+    private fun resolveIcon(sizePx: Int): Bitmap {
+        iconBase64?.let { b64 ->
+            decodeBase64Bitmap(b64)?.let { raw ->
+                return clipToCircle(scaleBitmap(raw, sizePx))
+            }
+        }
+        if (useLauncherIcon) {
+            getLauncherIconBitmap(sizePx)?.let { return clipToCircle(it) }
+        }
+        return buildColoredCircle(sizePx, bubbleColor)
+    }
+
+    private fun getLauncherIconBitmap(sizePx: Int): Bitmap? {
+        return try {
+            val drawable = packageManager.getApplicationIcon(packageName)
+            val bitmap   = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+            val canvas   = Canvas(bitmap)
+            drawable.setBounds(0, 0, sizePx, sizePx)
+            drawable.draw(canvas)
+            bitmap
+        } catch (_: Exception) { null }
+    }
+
+    private fun clipToCircle(src: Bitmap): Bitmap {
+        val size   = minOf(src.width, src.height)
+        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, maskPaint)
+        val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+        }
+        canvas.drawBitmap(src, 0f, 0f, imagePaint)
+        return output
+    }
+
+    private fun scaleBitmap(src: Bitmap, targetPx: Int): Bitmap =
+        Bitmap.createScaledBitmap(src, targetPx, targetPx, true)
+
+    private fun buildColoredCircle(sizePx: Int, color: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val cx = sizePx / 2f
+        val cy = sizePx / 2f
+        val radius = sizePx / 2f - 4f
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = Color.argb(60, 0, 0, 0)
+            maskFilter  = BlurMaskFilter(6f, BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.drawCircle(cx, cy + 3f, radius, shadowPaint)
+        val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+        canvas.drawCircle(cx, cy, radius, fillPaint)
+        return bitmap
+    }
+
+    /**
+     * Draws the dismiss zone bitmap: a semi-transparent dark circle with a
+     * white ✕ in the centre, matching the standard Android chat-head style.
+     */
+    private fun buildCloseZoneBitmap(sizePx: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val cx = sizePx / 2f
+        val cy = sizePx / 2f
+        val radius = sizePx / 2f - 2f
+
+        // Semi-transparent dark background circle
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(160, 30, 30, 30)
+        }
+        canvas.drawCircle(cx, cy, radius, bgPaint)
+
+        // Muted light-gray ✕ lines
+        val crossPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color       = Color.argb(210, 200, 200, 200)
+            strokeWidth = sizePx * 0.07f
+            strokeCap   = Paint.Cap.ROUND
+        }
+        val offset = sizePx * 0.22f
+        canvas.drawLine(cx - offset, cy - offset, cx + offset, cy + offset, crossPaint)
+        canvas.drawLine(cx + offset, cy - offset, cx - offset, cy + offset, crossPaint)
+
+        return bitmap
+    }
+
+    private fun decodeBase64Bitmap(base64: String): Bitmap? {
+        return try {
+            val bytes = Base64.decode(base64, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (_: Exception) { null }
+    }
+
+    // -------------------------------------------------------------------------
     // Notification (required for foreground service)
     // -------------------------------------------------------------------------
 
     private fun buildNotification(): Notification {
-        val openIntent   = packageManager.getLaunchIntentForPackage(packageName)
+        val openIntent    = packageManager.getLaunchIntentForPackage(packageName)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, openIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.floating_bubble_notification_title))
             .setContentText(getString(R.string.floating_bubble_notification_text))
@@ -360,41 +490,11 @@ class FloatingBubbleService : Service() {
     // Generic helpers
     // -------------------------------------------------------------------------
 
-    /**
-     * Builds a circular [Bitmap] filled with [color] and a subtle drop shadow.
-     * Used as the final fallback when no other icon source is available.
-     */
-    private fun buildColoredCircle(sizePx: Int, color: Int): Bitmap {
-        val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val cx     = sizePx / 2f
-        val cy     = sizePx / 2f
-        val radius = sizePx / 2f - 4f
-
-        // Drop shadow
-        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = Color.argb(60, 0, 0, 0)
-            maskFilter  = BlurMaskFilter(6f, BlurMaskFilter.Blur.NORMAL)
-        }
-        canvas.drawCircle(cx, cy + 3f, radius, shadowPaint)
-
-        // Fill
-        val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = color
-        }
-        canvas.drawCircle(cx, cy, radius, fillPaint)
-
-        return bitmap
-    }
-
-    private fun decodeBase64Bitmap(base64: String): Bitmap? {
-        return try {
-            val bytes = Base64.decode(base64, Base64.DEFAULT)
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        } catch (_: Exception) {
-            null
-        }
-    }
+    private fun overlayWindowType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else
+            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
 
     private fun dp2px(dp: Int): Int =
         TypedValue.applyDimension(

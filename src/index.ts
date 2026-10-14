@@ -53,6 +53,17 @@ export interface FloatingBubbleOptions {
    * Initial Y position of the bubble in screen pixels. Defaults to 100.
    */
   initialY?: number;
+  /**
+   * When `true`, the user can long-press the bubble to reveal a dismiss zone
+   * (✕) at the bottom of the screen, then drag the bubble onto it to close it.
+   * Mimics the standard Android chat-head dismiss pattern.
+   *
+   * When `false` (the default) the bubble can only be hidden programmatically
+   * via `FloatingBubble.hide()`.
+   *
+   * @default false
+   */
+  enableDismiss?: boolean;
 }
 
 const FloatingBubble = {
@@ -77,6 +88,7 @@ const FloatingBubble = {
       useLauncherIcon: options.useLauncherIcon ?? !hasCustomIcon,
       initialX: options.initialX ?? 0,
       initialY: options.initialY ?? 100,
+      enableDismiss: options.enableDismiss ?? false,
     };
     return NativeFloatingBubble.show(opts);
   },
