@@ -39,8 +39,8 @@ import kotlin.math.roundToInt
  *   - Drag to reposition
  *   - Spring-snap to the nearest screen edge on release
  *   - Tap to bring the host app to the foreground
- *   - Long-press to reveal a dismiss zone (✕) at the bottom of the screen,
- *     then drag onto it to close the bubble (opt-in via [enableDismiss])
+ *   - Dragging reveals a dismiss zone (✕) at the bottom of the screen;
+ *     release onto it to close the bubble (opt-in via [enableDismiss])
  *
  * Icon resolution order (first match wins):
  *   1. Developer-supplied base64 image  (`icon` option)
@@ -112,10 +112,16 @@ class FloatingBubbleService : Service() {
             enableDismiss   = it.getBooleanExtra(EXTRA_ENABLE_DISMISS, false)
         }
 
-        android.util.Log.d("FloatingBubble", "enableDismiss=$enableDismiss")
-
         startForeground(NOTIFICATION_ID, buildNotification())
-        setupBubble()
+
+        try {
+            setupBubble()
+        } catch (_: Exception) {
+            // Overlay permission revoked (e.g. sticky restart after the user disabled it)
+            removeBubble()
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         return START_STICKY
     }
@@ -130,6 +136,8 @@ class FloatingBubbleService : Service() {
     // -------------------------------------------------------------------------
 
     private fun setupBubble() {
+        // show() may be called while already showing; drop the old views first
+        removeBubble()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
         val sizePx = dp2px(bubbleSizeDp)
@@ -154,7 +162,6 @@ class FloatingBubbleService : Service() {
 
         windowManager!!.addView(bubbleView, params)
 
-        android.util.Log.d("FloatingBubble", "setupBubble: enableDismiss=$enableDismiss")
         if (enableDismiss) setupCloseZone(windowType)
 
         attachTouchListener()
@@ -163,10 +170,9 @@ class FloatingBubbleService : Service() {
     /**
      * Creates the dismiss zone — a translucent circle with a ✕ drawn on it,
      * anchored to the bottom-centre of the screen. Hidden (alpha 0) at rest;
-     * fades in when the user begins a long-press drag.
+     * fades in when the user begins dragging.
      */
     private fun setupCloseZone(windowType: Int) {
-        android.util.Log.d("FloatingBubble", "setupCloseZone called")
         val sizePx       = dp2px(CLOSE_ZONE_SIZE_DP)
         val screenWidth  = resources.displayMetrics.widthPixels
         val screenHeight = resources.displayMetrics.heightPixels
@@ -259,6 +265,14 @@ class FloatingBubbleService : Service() {
                         else -> openHostApp()
                     }
 
+                    isDragging  = false
+                    isOverClose = false
+                    true
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    hideCloseZone()
+                    if (isDragging) snapToEdge()
                     isDragging  = false
                     isOverClose = false
                     true

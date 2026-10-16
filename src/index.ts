@@ -54,8 +54,8 @@ export interface FloatingBubbleOptions {
    */
   initialY?: number;
   /**
-   * When `true`, the user can long-press the bubble to reveal a dismiss zone
-   * (✕) at the bottom of the screen, then drag the bubble onto it to close it.
+   * When `true`, dragging the bubble reveals a dismiss zone (✕) at the bottom
+   * of the screen; releasing the bubble onto it closes it.
    * Mimics the standard Android chat-head dismiss pattern.
    *
    * When `false` (the default) the bubble can only be hidden programmatically
