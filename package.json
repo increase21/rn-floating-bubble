@@ -1,6 +1,6 @@
 {
   "name": "@increase21/rn-floating-bubble",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "React Native floating bubble (chat-head) for Android — draggable overlay that taps to open the host app",
   "main": "lib/index.js",
   "module": "lib/index.js",
@@ -32,7 +32,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --build",
     "clean": "rm -rf lib",
-    "prepublishOnly": "npm run clean && npm run build && npm run typecheck",
+    "prepublishOnly": "npm run clean && npm run typecheck && npm run build",
     "release": "npm publish --access public"
   },
   "keywords": [

@@ -56,7 +56,8 @@ class FloatingBubbleModule(
         }
 
         val sizeDp          = if (options.hasKey("size"))             options.getInt("size")              else 60
-        val color           = if (options.hasKey("color"))            options.getInt("color")             else 0xFF4285F4.toInt()
+        // ARGB values like 0xFF4285F4 exceed Int.MAX_VALUE in JS; getInt() would clamp them
+        val color           = if (options.hasKey("color"))            options.getDouble("color").toLong().toInt() else 0xFF4285F4.toInt()
         val icon            = if (options.hasKey("icon"))             options.getString("icon")           else null
         // useLauncherIcon defaults to true when no explicit icon is provided
         val useLauncherIcon = if (options.hasKey("useLauncherIcon"))  options.getBoolean("useLauncherIcon") else (icon == null)
@@ -123,7 +124,7 @@ class FloatingBubbleModule(
             ).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            currentActivity?.startActivity(intent)
+            reactContext.currentActivity?.startActivity(intent)
                 ?: run {
                     pendingPermissionPromise = null
                     promise.reject("NO_ACTIVITY", "No current activity found.")
@@ -149,7 +150,11 @@ class FloatingBubbleModule(
     override fun onHostDestroy() {
         pendingPermissionPromise?.reject("DESTROYED", "Activity destroyed.")
         pendingPermissionPromise = null
+    }
+
+    override fun invalidate() {
         reactContext.removeLifecycleEventListener(this)
+        super.invalidate()
     }
 
     // -------------------------------------------------------------------------
