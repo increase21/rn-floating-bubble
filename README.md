@@ -14,6 +14,16 @@ and managing battery optimization.
 
 ---
 
+## Migrating from 1.x
+
+2.0 stops declaring permissions and the service in the library's manifest, so
+upgrading without changes makes `show()` reject with `PERMISSION_NOT_DECLARED`
+or `SERVICE_NOT_DECLARED`.  To keep 1.x behaviour, add the
+[bubble permission](#bubble-always-needed) and [Option A](#option-a--the-bubbles-own-foreground-service-default)
+to your app's manifest.  No JavaScript changes are needed.
+
+---
+
 ## Features
 
 - Draggable bubble that floats over the home screen and every other app
@@ -453,16 +463,6 @@ export function useBubble() {
   return { hasPermission, isShowing, show, hide };
 }
 ```
-
----
-
-## Migrating from 1.x
-
-2.0 stops declaring permissions and the service in the library's manifest, so
-upgrading without changes makes `show()` reject with `PERMISSION_NOT_DECLARED`
-or `SERVICE_NOT_DECLARED`.  To keep 1.x behaviour, add the
-[bubble permission](#bubble-always-needed) and [Option A](#option-a--the-bubbles-own-foreground-service-default)
-to your app's manifest.  No JavaScript changes are needed.
 
 ---
 
